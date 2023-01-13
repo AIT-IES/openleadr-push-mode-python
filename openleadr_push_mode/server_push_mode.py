@@ -22,6 +22,7 @@ import ssl
 
 from openleadr import utils, OpenADRServer
 from openleadr.messaging import create_message
+from openleadr.enums import MEASUREMENTS, SI_SCALE_CODE
 
 from openleadr_push_mode.service import RegistrationServicePushMode
 
@@ -100,14 +101,17 @@ class OpenADRServerPushMode(OpenADRServer):
 
         self._create_message = partial(create_message, cert=cert, key=key, passphrase=passphrase)
 
-    async def push_event(self, ven_id, **args):
+    async def push_event(self, ven_id, priority=None, measurement_name=None, scale=None, **args):
         '''
         Convenience method to push an event with a single signal.
         Parameters are the same as for method add_event of OpenLEADR's class OpenADRServer.
 
         :param str ven_id: The ven_id to whom this event must be delivered.
-        :param str signal_name: The OpenADR name of the signal; one of openleadr.objects.SIGNAL_NAME
-        :param str signal_type: The OpenADR type of the signal; one of openleadr.objects.SIGNAL_TYPE
+        :param int priority: The priority of this event relative to other events.
+        :param str measurement_name: The OpenADR name of the measurement type; one of openleadr.enums.MEASUREMENTS.
+        :param str scale: The OpenADR scale of the measurement type; one of openleadr.enums.SI_SCALE_CODE.
+        :param str signal_name: The OpenADR name of the signal; one of openleadr.objects.SIGNAL_NAME.
+        :param str signal_type: The OpenADR type of the signal; one of openleadr.objects.SIGNAL_TYPE.
         :param str intervals: A list of intervals with a dtstart, duration and payload member.
         :param str callback: A callback function for when your event has been accepted (optIn) or refused (optOut).
         :param list targets: A list of Targets that this Event applies to.
@@ -123,6 +127,23 @@ class OpenADRServerPushMode(OpenADRServer):
 
         event_id = self.add_event(ven_id=ven_id, **args)
         event, callback = self.event_callbacks[event_id]
+
+        if (measurement_name is not None):
+            if measurement_name not in MEASUREMENTS.members:
+                raise ValueError(f"""The measurement_name must be one of '{"', '".join(MEASUREMENTS.members)}'""")
+            for signal in event.event_signals:
+                signal.measurement = MEASUREMENTS[measurement_name]
+
+        if (scale is not None):
+            if scale not in SI_SCALE_CODE.members:
+                raise ValueError(f"""The scale must be one of '{"', '".join(SI_SCALE_CODE.members)}'""")
+            for signal in event.event_signals:
+                signal.measurement.scale = SI_SCALE_CODE[scale]
+
+        if (priority is not None):
+            if (type(priority) is not int or priority < 0):
+                raise ValueError('The priority must be a non-negative integer')
+            event.event_descriptor.priority = priority
 
         # Now push the event to the VEN.
         if ven_id in self.services['registration_service'].ven_addresses:
