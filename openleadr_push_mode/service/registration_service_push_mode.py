@@ -67,7 +67,7 @@ class RegistrationServicePushMode(RegistrationService):
                                               'transports': transports}]}
         return 'oadrCreatedPartyRegistration', response_payload
 
-    def on_create_party_registration_push_mode(self, payload):
+    def on_create_party_registration(self, payload):
         '''
         Placeholder for the on_create_party_registration handler
         '''

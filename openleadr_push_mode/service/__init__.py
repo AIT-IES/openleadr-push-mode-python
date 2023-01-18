@@ -15,3 +15,4 @@
 # flake8: noqa
 
 from .registration_service_push_mode import RegistrationServicePushMode
+from .report_service_push_mode import ReportServicePushMode

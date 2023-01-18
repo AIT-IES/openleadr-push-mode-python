@@ -89,7 +89,11 @@ class OpenADRClientPushMode(OpenADRClient):
         '''
         Run the client in push mode.
         '''
+        # Add handler for receiving events from the server (VEN client event service).
         self.app.add_routes([aiohttp.web.post(f'{self.http_path_prefix}/EiEvent', self._on_push_event)])
+
+        # Add handler for report requests from the server (VEN client report service).
+        self.app.add_routes([aiohttp.web.post(f'{self.http_path_prefix}/EiReport', self._on_push_create_report)])
 
         protocol = 'https' if self.ssl_context else 'http'
         address = f'{protocol}://{self.http_host}:{self.http_port}{self.http_path_prefix}'
@@ -131,12 +135,59 @@ class OpenADRClientPushMode(OpenADRClient):
             loop = asyncio.get_event_loop()
             self.report_queue_task = loop.create_task(self._report_queue_worker())
 
+        self.scheduler.start()
+
     async def stop(self):
         '''
         Stop the client in a graceful manner.
         '''
         await super().stop()
         await self.app_runner.cleanup()
+
+    ###########################################################################
+    #                                                                         #
+    #                             REPORTING METHODS                           #
+    #                                                                         #
+    ###########################################################################
+
+    async def register_reports(self, reports):
+        '''
+        Tell the VTN about our reports. The VTN might respond with an
+        oadrCreateReport message that tells us which reports are to be sent.
+        This methods is basically a copy from OpenADRClient, except that
+        it will not send a message of type oadrCreatedReport in case no
+        reports have been requested.
+        '''
+        request_id = utils.generate_id()
+        payload = {'request_id': request_id,
+                   'ven_id': self.ven_id,
+                   'reports': reports,
+                   'report_request_id': 0}
+
+        for report in payload['reports']:
+            utils.setmember(report, 'report_request_id', 0)
+
+        service = 'EiReport'
+        message = self._create_message('oadrRegisterReport', **payload)
+        response_type, response_payload = await self._perform_request(service, message)
+
+        # Handle the subscriptions that the VTN is interested in.
+        if 'report_requests' in response_payload:
+            for report_request in response_payload['report_requests']:
+                await self.create_report(report_request)
+
+        # Send the oadrCreatedReport message (if reports have been requested).
+        if 0 != len(self.report_requests):
+            message_type = 'oadrCreatedReport'
+            message_payload = {'pending_reports':
+                            [{'report_request_id': utils.getmember(report, 'report_request_id')}
+                                for report in self.report_requests]}
+            message = self._create_message(message_type,
+                                        response={'response_code': 200,
+                                                    'response_description': 'OK'},
+                                        ven_id=self.ven_id,
+                                        **message_payload)
+            response_type, response_payload = await self._perform_request(service, message)
 
     ###########################################################################
     #                                                                         #
@@ -180,10 +231,59 @@ class OpenADRClientPushMode(OpenADRClient):
         delay = OpenADRClientPushMode.CREATED_EVENT_RESPONSE_DELAY
         response_date = datetime.now(tz=tzlocal.get_localzone()) + timedelta(seconds=delay)
         self.scheduler.add_job(self._on_event, args=[message_payload], run_date=response_date)
-        self.scheduler.start()
 
         response = aiohttp.web.Response(status=HTTPStatus.OK)
         hooks.call('before_respond', response.text)
+        return response
+
+    async def _on_push_create_report(self, request):
+        '''
+        Handler for report service.
+        '''
+        content_type = request.headers.get('content-type', '')
+        if not content_type.lower().startswith('application/xml'):
+            raise errors.HTTPError(response_code=HTTPStatus.BAD_REQUEST,
+                                   response_description=f'The Content-Type header must be application/xml; '
+                                                        f'you provided {request.headers.get("content-type", "")}')
+        content = await request.read()
+
+        hooks.call('before_parse', content)
+
+        # Validate the message to the XML Schema
+        message_tree = validate_xml_schema(content)
+
+        # Parse the message to a type and payload dict
+        message_type, message_payload = parse_message(content)
+
+        if 'vtn_id' in message_payload and message_payload['vtn_id'] is not None and message_payload['vtn_id'] != self.vtn_id:
+            raise errors.InvalidIdError(f'The supplied vtnID is invalid. It should be "{self.vtn_id}", '
+                                        f'you supplied "{message_payload["vtn_id"]}".')
+
+        if self.vtn_fingerprint:
+            await self._authenticate_message(request, message_tree, message_payload)
+
+        if message_type != 'oadrCreateReport':
+            logger.warning(f'Expected message of type \'oadrCreateReport\', but got \'{message_type}\'')
+            return aiohttp.web.Response(status=HTTPStatus.BAD_REQUEST)
+
+        # Handle the subscriptions that the VTN is interested in.
+        if 'report_requests' in message_payload:
+            for report_request in message_payload['report_requests']:
+                await self.create_report(report_request)
+
+        # Send the oadrCreatedReport message
+        message_type = 'oadrCreatedReport'
+        message_payload = {'pending_reports':
+                           [{'report_request_id': utils.getmember(report, 'report_request_id')}
+                            for report in self.report_requests]}
+        message = self._create_message(message_type,
+                                       response={'response_code': 200,
+                                                 'response_description': 'OK'},
+                                       ven_id=self.ven_id,
+                                       **message_payload)
+        response = aiohttp.web.Response(text=message,
+                                        status=HTTPStatus.OK,
+                                        content_type='application/xml')
         return response
 
     async def _authenticate_message(self, request, message_tree, message_payload):

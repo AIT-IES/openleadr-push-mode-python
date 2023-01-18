@@ -48,11 +48,15 @@ async def push(s, delay):
     await asyncio.sleep(delay)
     id = await s.push_event(
         ven_id='ven_id_123',
-        signal_name='simple',
-        signal_type='level',
+        priority=1,
+        signal_name='LOAD_DISPATCH',
+        signal_type='delta',
+        measurement_name='REAL_POWER',
+        scale='k',
         intervals=[{'dtstart': datetime.now(tz=timezone.utc) + timedelta(minutes=5),
                     'duration': timedelta(minutes=10),
-                    'signal_payload': 1}],
+                    'signal_payload': 3.1}],
+        market_context='oadr://my_market',
         callback=event_response_callback
         )
 

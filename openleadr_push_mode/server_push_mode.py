@@ -20,11 +20,14 @@ import aiohttp
 from http import HTTPStatus
 import ssl
 
-from openleadr import utils, OpenADRServer
-from openleadr.messaging import create_message
-from openleadr.enums import MEASUREMENTS, SI_SCALE_CODE
+from lxml.etree import XMLSyntaxError
+from signxml.exceptions import InvalidSignature
 
-from openleadr_push_mode.service import RegistrationServicePushMode
+from openleadr import errors, utils, OpenADRServer
+from openleadr.enums import MEASUREMENTS, SI_SCALE_CODE
+from openleadr.messaging import create_message, parse_message, validate_xml_schema, validate_xml_signature
+
+from openleadr_push_mode.service import RegistrationServicePushMode, ReportServicePushMode
 
 import logging
 
@@ -37,7 +40,8 @@ class OpenADRServerPushMode(OpenADRServer):
     Most methods are re-used from OpenLEADR's class OpenADRServer.
     '''
 
-    def __init__(self, vtn_id, cert=None, key=None, passphrase=None,
+    def __init__(self, vtn_id, auto_register_report=True,
+                 cert=None, key=None, passphrase=None,
                  http_cert=None, http_key=None, http_key_passphrase=None,
                  http_ca_file=None, **args):
         '''
@@ -46,6 +50,8 @@ class OpenADRServerPushMode(OpenADRServer):
 
         :param str vtn_id: An identifier string for this VTN. This is how you identify yourself
             to the VENs that talk to you.
+        :param bool auto_register_report: If true, automatically register to all reports
+            registered by the VEN.
         :param str cert: Path to the PEM-formatted certificate file that is used to sign outgoing
             messages
         :param str key: Path to the PEM-formatted private key file that is used to sign outgoing
@@ -74,6 +80,7 @@ class OpenADRServerPushMode(OpenADRServer):
         # Set up the message queues.
         self.app = aiohttp.web.Application()
         self.services['registration_service'] = RegistrationServicePushMode(vtn_id)
+        self.services['report_service'] = ReportServicePushMode(vtn_id, auto_register_report)
 
         # Set up the HTTP handlers for the services
         self.app.add_routes([aiohttp.web.post(f'{self.http_path_prefix}/{s.__service_name__}', s.handler)
@@ -100,6 +107,43 @@ class OpenADRServerPushMode(OpenADRServer):
                 key = file.read()
 
         self._create_message = partial(create_message, cert=cert, key=key, passphrase=passphrase)
+
+    async def push_report_request(self, ven_id, report_requests):
+        '''
+        Send report requests to VEN. This request can be performed only after the VEN has
+        registered its available reports.
+
+        :param ven_id: The ID of the VEN ID to which this request will be delivered.
+        :type ven_id: str
+        :param report_requests: List of report requests.
+        :type report_requests: list
+
+        :return: added report request IDs on success, otherwise None
+        :rtype: list, None
+        '''
+        if ven_id not in self.registered_reports:
+            return None
+
+        if ven_id not in self.services['report_service'].created_reports:
+            self.services['report_service'].created_reports[ven_id] = []
+
+        previously_created_reports = self.services['report_service'].created_reports[ven_id].copy()
+
+        # Generate request.
+        request_id = utils.generate_id()
+        payload = {'request_id': request_id,
+                   'report_requests': report_requests,
+                   'ven_id': ven_id}
+        request = self._create_message('oadrCreateReport', **payload)
+
+        # Now push the event to the VEN.
+        if ven_id in self.services['registration_service'].ven_addresses:
+            response_type, response_payload = await self._send_report_request(ven_id, request)
+            await self.services['report_service'].created_report(response_payload)
+
+        # Return list of newly created report request IDs.
+        updated_created_reports = self.services['report_service'].created_reports[ven_id]
+        return [r for r in updated_created_reports if r not in previously_created_reports]
 
     async def push_event(self, ven_id, priority=None, measurement_name=None, scale=None, **args):
         '''
@@ -168,6 +212,10 @@ class OpenADRServerPushMode(OpenADRServer):
         await self.client_session_post.close()
         await asyncio.sleep(0)
 
+    @property
+    def report_requests(self):
+        return self.services['report_service'].requested_reports.copy()
+
     ###########################################################################
     #                                                                         #
     #                                  LOW LEVEL                              #
@@ -206,3 +254,44 @@ class OpenADRServerPushMode(OpenADRServer):
         except Exception as err:
             logger.error(f'Request error {err.__class__.__name__}:{err}')
             return
+
+    async def _send_report_request(self, ven_id, request):
+        address = self.services['registration_service'].ven_addresses[ven_id]
+        url = f'{address}/EiReport'
+        try:
+            async with self.client_session_post.post(url, data=request) as req:
+                content = await req.read()
+                if req.status != HTTPStatus.OK:
+                    logger.warning(f"Non-OK status {req.status} when performing a request to {url} "
+                                   f"with data {request}: {req.status} {content.decode('utf-8')}")
+                    return None, {}
+        except aiohttp.client_exceptions.ClientConnectorError as err:
+            # Could not connect to server
+            logger.error(f"Could not connect to server with URL {self.vtn_url}:")
+            logger.error(f"{err.__class__.__name__}: {str(err)}")
+            return None, {}
+        except Exception as err:
+            logger.error(f"Request error {err.__class__.__name__}:{err}")
+            return None, {}
+
+        if len(content) == 0:
+            return None
+
+        try:
+            tree = validate_xml_schema(content)
+            message_type, message_payload = parse_message(content)
+        except XMLSyntaxError as err:
+            logger.warning(f"Incoming message did not pass XML schema validation: {err}")
+            return None, {}
+        except InvalidSignature:
+            logger.warning("Incoming message had invalid signature, ignoring.")
+            return None, {}
+        except Exception as err:
+            logger.error(f"The incoming message could not be parsed or validated: {err}")
+            return None, {}
+        if 'response' in message_payload and 'response_code' in message_payload['response']:
+            if message_payload['response']['response_code'] != 200:
+                logger.warning("We got a non-OK OpenADR response from the server: "
+                               f"{message_payload['response']['response_code']}: "
+                               f"{message_payload['response']['response_description']}")
+        return message_type, message_payload
