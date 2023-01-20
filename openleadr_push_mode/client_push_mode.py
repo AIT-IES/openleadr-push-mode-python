@@ -93,7 +93,7 @@ class OpenADRClientPushMode(OpenADRClient):
         self.app.add_routes([aiohttp.web.post(f'{self.http_path_prefix}/EiEvent', self._on_push_event)])
 
         # Add handler for report requests from the server (VEN client report service).
-        self.app.add_routes([aiohttp.web.post(f'{self.http_path_prefix}/EiReport', self._on_push_create_report)])
+        self.app.add_routes([aiohttp.web.post(f'{self.http_path_prefix}/EiReport', self._report_service_handler)])
 
         protocol = 'https' if self.ssl_context else 'http'
         address = f'{protocol}://{self.http_host}:{self.http_port}{self.http_path_prefix}'
@@ -236,7 +236,7 @@ class OpenADRClientPushMode(OpenADRClient):
         hooks.call('before_respond', response.text)
         return response
 
-    async def _on_push_create_report(self, request):
+    async def _report_service_handler(self, request):
         '''
         Handler for report service.
         '''
@@ -262,10 +262,18 @@ class OpenADRClientPushMode(OpenADRClient):
         if self.vtn_fingerprint:
             await self._authenticate_message(request, message_tree, message_payload)
 
-        if message_type != 'oadrCreateReport':
-            logger.warning(f'Expected message of type \'oadrCreateReport\', but got \'{message_type}\'')
+        if message_type == 'oadrCreateReport':
+            return await self._on_push_create_report(message_payload)
+        if message_type == 'oadrCancelReport':
+            return await self._on_push_cancel_report(message_payload)
+        else:
+            logger.warning(f'Unexpected message type: \'{message_type}\'')
             return aiohttp.web.Response(status=HTTPStatus.BAD_REQUEST)
 
+    async def _on_push_create_report(self, message_payload):
+        '''
+        Handle requests of type 'oadrCreateReport'
+        '''
         # Handle the subscriptions that the VTN is interested in.
         if 'report_requests' in message_payload:
             for report_request in message_payload['report_requests']:
@@ -273,6 +281,38 @@ class OpenADRClientPushMode(OpenADRClient):
 
         # Send the oadrCreatedReport message
         message_type = 'oadrCreatedReport'
+        message_payload = {'pending_reports':
+                           [{'report_request_id': utils.getmember(report, 'report_request_id')}
+                            for report in self.report_requests]}
+        message = self._create_message(message_type,
+                                       response={'response_code': 200,
+                                                 'response_description': 'OK'},
+                                       ven_id=self.ven_id,
+                                       **message_payload)
+        response = aiohttp.web.Response(text=message,
+                                        status=HTTPStatus.OK,
+                                        content_type='application/xml')
+        return response
+
+    async def _on_push_cancel_report(self, message_payload):
+        '''
+        Handle requests of type 'oadrCancelReport'
+        '''
+        cancel_report_request_id = message_payload['report_request_id']
+        report_to_follow = message_payload['report_to_follow']
+
+        # Handle the subscription that the VTN wants to cancel.
+        for report in self.report_requests:
+            if report['report_request_id'] == cancel_report_request_id:
+                job = report['job']                
+                if report_to_follow:
+                    await job.func()
+                job.remove()
+                self.report_requests.remove(report)
+                break
+
+        # Send the oadrCanceledReport message
+        message_type = 'oadrCanceledReport'
         message_payload = {'pending_reports':
                            [{'report_request_id': utils.getmember(report, 'report_request_id')}
                             for report in self.report_requests]}

@@ -37,3 +37,10 @@ class ReportServicePushMode(ReportService):
         if False is self.auto_register:
             response_payload['report_requests'] = []
         return response_type, response_payload
+
+    async def cancel_report(self, payload):
+        ven_id = payload['ven_id']
+
+        self.created_reports[ven_id].clear()
+        for pending_report in payload.get('pending_reports', []):
+            self.created_reports[ven_id].append(pending_report['report_request_id'])

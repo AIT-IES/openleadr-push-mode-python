@@ -136,14 +136,61 @@ class OpenADRServerPushMode(OpenADRServer):
                    'ven_id': ven_id}
         request = self._create_message('oadrCreateReport', **payload)
 
-        # Now push the event to the VEN.
+        logger.info(f'Request new reports: {payload}')
+
+        # Now push the request to the VEN.
         if ven_id in self.services['registration_service'].ven_addresses:
             response_type, response_payload = await self._send_report_request(ven_id, request)
             await self.services['report_service'].created_report(response_payload)
 
-        # Return list of newly created report request IDs.
-        updated_created_reports = self.services['report_service'].created_reports[ven_id]
-        return [r for r in updated_created_reports if r not in previously_created_reports]
+            # Return list of newly created report request IDs.
+            updated_created_reports = self.services['report_service'].created_reports[ven_id]
+            report_request_ids = [r for r in updated_created_reports if r not in previously_created_reports]
+
+            logger.info(f'Created reports: {report_request_ids}')
+
+            return report_request_ids
+        else:
+            raise ValueError(f'Unknown VEN ID: {ven_id}')
+
+    async def push_cancel_report(self, ven_id, cancel_report_id, report_to_follow=False):
+        '''
+        Cancel reports from VEN.
+
+        :param ven_id: The ID of the VEN ID to which this request will be delivered.
+        :type ven_id: str
+        :param cancel_report_id: Report request ID to be cancelled.
+        :type cancel_report_id: string
+        :param report_to_follow: If true, the VEN is expected to send one final additional report.
+        :type report_to_follow: bool
+
+        :return: List of all reports that are scheduled for future delivery.
+        :rtype: list
+        '''
+        if ven_id not in self.registered_reports:
+            return None
+
+        if ven_id not in self.services['report_service'].created_reports:
+            self.services['report_service'].created_reports[ven_id] = []
+
+        # Generate request.
+        request_id = utils.generate_id()
+        payload = {'request_id': request_id,
+                   'report_request_id': cancel_report_id,
+                   'report_to_follow': report_to_follow,
+                   'ven_id': ven_id}
+        request = self._create_message('oadrCancelReport', **payload)
+
+        logger.info(f'Cancel report: {payload}')
+
+        # Now push the request to the VEN.
+        if ven_id in self.services['registration_service'].ven_addresses:
+            response_type, response_payload = await self._send_report_request(ven_id, request)
+            await self.services['report_service'].cancel_report(response_payload)
+
+            return response_payload.get('pending_reports', [])
+        else:
+            raise ValueError(f'Unknown VEN ID: {ven_id}')
 
     async def push_event(self, ven_id, priority=None, measurement_name=None, scale=None, **args):
         '''
@@ -215,6 +262,10 @@ class OpenADRServerPushMode(OpenADRServer):
     @property
     def report_requests(self):
         return self.services['report_service'].requested_reports.copy()
+
+    @property
+    def created_reports(self):
+        return self.services['report_service'].created_reports.copy()
 
     ###########################################################################
     #                                                                         #
