@@ -18,12 +18,12 @@ with open('README.md', 'r') as fh:
     long_description = fh.read()
 
 setup(name='openleadr_push_mode',
-      version='0.0.1',
+      version='0.0.2',
       description='Python3 library for building OpenADR Clients (VENs) and Servers (VTNs) in PUSH mode',
       long_description=long_description,
       long_description_content_type='text/markdown',
       project_urls={'GitHub': 'https://github.com/AIT-IES/openleadr-push-mode-python'},
       python_requires='>=3.7.0',
       include_package_data=True,
-      install_requires=['openleadr==0.5.27'],
+      install_requires=['openleadr==0.5.28'],
       )
