@@ -41,17 +41,25 @@ async def event_response_callback(ven_id, event_id, opt_type):
     '''
     print(f'VEN {ven_id} responded to Event {event_id} with: {opt_type}')
 
+async def push_report_cancelation(s, delay):
+    '''
+    Push a report request to a VEN with a given delay.
+    '''
+    await asyncio.sleep(delay)
+    created_reports = s.created_reports['ven_id_123']
+    report_request_ids = await s.push_cancel_report('ven_id_123', created_reports[0], True)
+
 async def push_report_registration(s, delay):
     '''
     Push a report request to a VEN with a given delay.
     '''
     await asyncio.sleep(delay)
-    report_requests = s.report_requests['ven_id_123']    
+    report_requests = s.report_requests['ven_id_123']
     report_requests[0].report_specifier.specifier_payloads.pop()
     report_request_ids = await s.push_report_request('ven_id_123', report_requests)
 
 # Create the server object
-simple_server = OpenADRServerPushMode(vtn_id='myvtn', auto_register_report=False)
+simple_server = OpenADRServerPushMode(vtn_id='myvtn', auto_register_report=True)
 
 # Add the handler for client (VEN) registrations
 simple_server.add_handler('on_create_party_registration', on_create_party_registration)
@@ -63,7 +71,10 @@ simple_server.add_handler('on_register_report', on_register_report)
 loop = asyncio.get_event_loop()
 loop.create_task(simple_server.run())
 
-# Push an report registration later.
-loop.create_task(push_report_registration(simple_server, 5))
+# Push a report cancelation later.
+loop.create_task(push_report_cancelation(simple_server, 10))
+
+# Push another report registration after the cancelation.
+loop.create_task(push_report_registration(simple_server, 15))
 
 loop.run_forever()

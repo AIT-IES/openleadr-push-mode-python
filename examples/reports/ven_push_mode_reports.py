@@ -27,11 +27,11 @@ simple_client = OpenADRClientPushMode(
 simple_client.add_report(callback=collect_report_value,
                   resource_id='device001',
                   measurement='voltage',
-                  sampling_rate=timedelta(seconds=10))
+                  sampling_rate=timedelta(seconds=2))
 simple_client.add_report(callback=collect_report_value,
                   resource_id='device002',
                   measurement='voltage',
-                  sampling_rate=timedelta(seconds=10))
+                  sampling_rate=timedelta(seconds=2))
 
 # Add event handling capability to the client
 simple_client.add_handler('on_event', handle_event)
