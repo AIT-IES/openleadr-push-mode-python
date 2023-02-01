@@ -35,12 +35,6 @@ async def on_update_report(data, ven_id, resource_id, measurement):
     for time, value in data:
         print(f'Ven {ven_id} reported {measurement} = {value} at time {time} for resource {resource_id}')
 
-async def event_response_callback(ven_id, event_id, opt_type):
-    '''
-    Callback that receives the response from a VEN to an Event.
-    '''
-    print(f'VEN {ven_id} responded to Event {event_id} with: {opt_type}')
-
 async def push_report_cancelation(s, delay):
     '''
     Push a report request to a VEN with a given delay.
