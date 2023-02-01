@@ -111,4 +111,7 @@ loop.create_task(secure_server.run())
 # Push an event later.
 loop.create_task(push(secure_server, 5))
 
-loop.run_forever()
+try:
+    loop.run_forever()
+except KeyboardInterrupt:
+    loop.run_until_complete(secure_server.stop())

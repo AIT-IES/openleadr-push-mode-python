@@ -23,9 +23,10 @@ import ssl
 from lxml.etree import XMLSyntaxError
 from signxml.exceptions import InvalidSignature
 
-from openleadr import errors, utils, OpenADRServer
+from openleadr import utils, OpenADRServer
 from openleadr.enums import MEASUREMENTS, SI_SCALE_CODE
-from openleadr.messaging import create_message, parse_message, validate_xml_schema, validate_xml_signature
+from openleadr.messaging import create_message, parse_message, validate_xml_schema
+from openleadr.objects import ReportRequest, ReportSpecifier
 
 from openleadr_push_mode.service import RegistrationServicePushMode, ReportServicePushMode
 
@@ -258,6 +259,7 @@ class OpenADRServerPushMode(OpenADRServer):
         await super().stop()
         await self.client_session_post.close()
         await asyncio.sleep(0)
+        logger.info(f'{self.vtn_id} stopped.')
 
     @property
     def report_requests(self):
@@ -269,7 +271,94 @@ class OpenADRServerPushMode(OpenADRServer):
 
     ###########################################################################
     #                                                                         #
-    #                                  LOW LEVEL                              #
+    #                  PRE-REGISTRATION (FOR TESTING ONLY)                    #
+    #                                                                         #
+    ###########################################################################
+
+    async def pre_register_ven(self, ven_name, transport_address,
+                               report_only=False, xml_signature=False):
+        '''
+        Pre-registration of a VEN allows the VEN to skip the party registration
+        process. Only intended for testing purposes!
+
+        :param ven_name: name of the VEN
+        :type ven_name: str
+        :param transport_address: URL of the VEN
+        :type transport_address: str
+        :param report_only:  indicate the VEN is a Report Only instance of the B profile. (default: False)
+        :type report_only: bool
+        :param xml_signature: XML signature (default: None)
+        :type xml_signature: str or None
+        :return: ven_id and registration_id
+        :rtype: tuple of str
+        '''
+        transport_name = 'simpleHttp'
+        profile_name = '2.0b'
+        http_pull_model = False
+
+        payload = {'ven_name': ven_name,
+                   'http_pull_model': http_pull_model,
+                   'xml_signature': xml_signature,
+                   'report_only': report_only,
+                   'profile_name': profile_name,
+                   'transport_name': transport_name,
+                   'transport_address': transport_address}
+
+        registration_service = self.services['registration_service']
+        _, result = await registration_service.create_party_registration(payload)
+
+        ven_id = result['ven_id']
+        registration_id = result['registration_id']
+
+        logger.info(f'Pre-registered {ven_name} with ID = {ven_id} under registration ID = {registration_id}.')
+
+        return ven_id, registration_id
+
+    async def pre_register_report(self, ven_id, report_request_id, report_specifier_id, report_id,
+                                  resource_id, measurement, unit, scale, sampling_interval):
+        '''
+        Pre-registration of reports allows to skip the report registration and
+        creation process. Only intended for testing purposes!
+
+        :param ven_id: VEN ID
+        :type ven_id: str
+        :param ven_id: report ID
+        :type ven_id: str
+        '''
+        # Add dummy request to report service.
+        report_specifier = ReportSpecifier(report_specifier_id=report_specifier_id,
+                                           granularity=None,
+                                           specifier_payloads=[])
+        report_request = ReportRequest(report_request_id=report_request_id,
+                                       report_specifier=report_specifier)
+
+        if ven_id in self.services['report_service'].requested_reports:
+            self.services['report_service'].requested_reports[ven_id].append(report_request)
+        else:
+            self.services['report_service'].requested_reports[ven_id] = [report_request]
+
+        # Add report to service.
+        payload = {'pending_reports': [{'report_request_id': report_request_id}],
+                   'ven_id': ven_id}
+        await self.services['report_service'].created_report(payload)
+
+        # Call on_register_report handler.
+        register = self.services['report_service'].on_register_report
+        result = await register(ven_id=ven_id, resource_id=resource_id, measurement=measurement,
+                                unit=unit, scale=scale, min_sampling_interval=sampling_interval,
+                                max_sampling_interval=sampling_interval)
+        if result:
+            if not isinstance(result, tuple):
+                logger.error('Your on_register_report handler must return a tuple or None; '
+                             f'it returned "{result}" ({result.__class__.__name__}).')
+            # Add callback to report service.
+            self.services['report_service'].report_callbacks[(report_request_id, report_id)] = result[0]
+
+        logger.info(f'Pre-registered report with specifier ID={report_specifier_id} from {ven_id}')
+
+    ###########################################################################
+    #                                                                         #
+    #                                LOW LEVEL                                #
     #                                                                         #
     ###########################################################################
 
@@ -329,7 +418,7 @@ class OpenADRServerPushMode(OpenADRServer):
             return None
 
         try:
-            tree = validate_xml_schema(content)
+            validate_xml_schema(content)
             message_type, message_payload = parse_message(content)
         except XMLSyntaxError as err:
             logger.warning(f"Incoming message did not pass XML schema validation: {err}")

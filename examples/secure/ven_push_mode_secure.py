@@ -52,4 +52,8 @@ secure_client.add_handler('on_event', handle_event)
 # Run the client in the Python AsyncIO Event Loop
 loop = asyncio.get_event_loop()
 loop.create_task(secure_client.run())
-loop.run_forever()
+
+try:
+    loop.run_forever()
+except KeyboardInterrupt:
+    loop.run_until_complete(secure_client.stop())

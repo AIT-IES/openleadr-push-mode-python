@@ -13,11 +13,6 @@
 # limitations under the License.
 
 from openleadr.service import service, handler, ReportService
-# from asyncio import iscoroutine
-
-import logging
-
-logger = logging.getLogger('openleadr')
 
 
 @service('EiReport')
@@ -29,7 +24,7 @@ class ReportServicePushMode(ReportService):
 
     def __init__(self, vtn_id, auto_register=True):
         super().__init__(vtn_id)
-        self.auto_register=auto_register
+        self.auto_register = auto_register
 
     @handler('oadrRegisterReport')
     async def register_report(self, payload):

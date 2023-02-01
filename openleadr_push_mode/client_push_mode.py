@@ -85,7 +85,7 @@ class OpenADRClientPushMode(OpenADRClient):
         self.app = aiohttp.web.Application()
         self.app['server'] = self
 
-    async def run(self):
+    async def run(self, auto_register=True, auto_register_reports=True):
         '''
         Run the client in push mode.
         '''
@@ -113,27 +113,28 @@ class OpenADRClientPushMode(OpenADRClient):
         print('*' * 80)
         print('')
 
-        _, registration_response_payload = \
-            await self.create_party_registration(ven_id=self.ven_id,
-                                                 http_pull_model=False,
-                                                 transport_address=address)
+        if auto_register:
+            _, registration_response_payload = \
+                await self.create_party_registration(ven_id=self.ven_id,
+                                                     http_pull_model=False,
+                                                     transport_address=address)
 
-        if not self.registration_id:
-            logger.error('No RegistrationID received from the VTN, aborting.')
-            await self.stop()
-            return
+            if not self.registration_id:
+                logger.error('No RegistrationID received from the VTN, aborting.')
+                await self.stop()
+                return
 
-        if 'vtn_id' in registration_response_payload:
-            self.vtn_id = registration_response_payload['vtn_id']
-        else:
-            logger.warning('No VTN ID received.')
-            self.vtn_id = None
+            if 'vtn_id' in registration_response_payload:
+                self.vtn_id = registration_response_payload['vtn_id']
+            else:
+                logger.warning('No VTN ID received.')
+                self.vtn_id = None
 
-        if self.reports:
+        if self.reports and auto_register_reports:
             await self.register_reports(self.reports)
 
-            loop = asyncio.get_event_loop()
-            self.report_queue_task = loop.create_task(self._report_queue_worker())
+        loop = asyncio.get_event_loop()
+        self.report_queue_task = loop.create_task(self._report_queue_worker())
 
         self.scheduler.start()
 
@@ -143,6 +144,7 @@ class OpenADRClientPushMode(OpenADRClient):
         '''
         await super().stop()
         await self.app_runner.cleanup()
+        logger.info(f'{self.ven_name} stopped.')
 
     ###########################################################################
     #                                                                         #
@@ -179,19 +181,53 @@ class OpenADRClientPushMode(OpenADRClient):
         # Send the oadrCreatedReport message (if reports have been requested).
         if 0 != len(self.report_requests):
             message_type = 'oadrCreatedReport'
-            message_payload = {'pending_reports':
-                            [{'report_request_id': utils.getmember(report, 'report_request_id')}
-                                for report in self.report_requests]}
+            pending_reports = [{'report_request_id': utils.getmember(report, 'report_request_id')}
+                               for report in self.report_requests]
+            message_payload = {'pending_reports': pending_reports}
             message = self._create_message(message_type,
-                                        response={'response_code': 200,
-                                                    'response_description': 'OK'},
-                                        ven_id=self.ven_id,
-                                        **message_payload)
+                                           response={'response_code': 200,
+                                                     'response_description': 'OK'},
+                                           ven_id=self.ven_id,
+                                           **message_payload)
             response_type, response_payload = await self._perform_request(service, message)
 
     ###########################################################################
     #                                                                         #
-    #                                  LOW LEVEL                              #
+    #                  PRE-REGISTRATION (FOR TESTING ONLY)                    #
+    #                                                                         #
+    ###########################################################################
+
+    def pre_register_ven(self, ven_id, registration_id=None, vtn_id=None):
+        '''
+        Pre-registration of a VEN allows the VEN to skip the party registration
+        process. Only intended for testing purposes!
+
+        :param ven_id: VEN ID
+        :type ven_id: str
+        :param registration_id: VEN regsitrartion ID (default: None)
+        :type registration_id: str or None
+        :param vtn_id: VTN ID (default: None)
+        :type vtn_id: str or None
+        '''
+        self.ven_id = ven_id
+        self.registration_id = registration_id
+        self.vtn_id = vtn_id
+
+    async def pre_register_report(self, report_request_id, report_specifier_id, report_ids, granularity):
+        '''
+        '''
+        # Add dummy VTN reponse to start sending reports.
+        specifier_payloads = [dict(r_id=id) for id in report_ids]
+        report_specifier = {'report_specifier_id': report_specifier_id,
+                            'granularity': granularity,
+                            'specifier_payloads': specifier_payloads}
+        report_request = {'report_request_id': report_request_id,
+                          'report_specifier': report_specifier}
+        await self.create_report(report_request)
+
+    ###########################################################################
+    #                                                                         #
+    #                                LOW LEVEL                                #
     #                                                                         #
     ###########################################################################
 
@@ -304,7 +340,7 @@ class OpenADRClientPushMode(OpenADRClient):
         # Handle the subscription that the VTN wants to cancel.
         for report in self.report_requests:
             if report['report_request_id'] == cancel_report_request_id:
-                job = report['job']                
+                job = report['job']
                 if report_to_follow:
                     await job.func()
                 job.remove()

@@ -77,4 +77,7 @@ loop.create_task(push_report_cancelation(simple_server, 10))
 # Push another report registration after the cancelation.
 loop.create_task(push_report_registration(simple_server, 15))
 
-loop.run_forever()
+try:
+    loop.run_forever()
+except KeyboardInterrupt:
+    loop.run_until_complete(simple_server.stop())

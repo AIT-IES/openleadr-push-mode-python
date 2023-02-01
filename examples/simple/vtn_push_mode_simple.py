@@ -81,4 +81,7 @@ loop.create_task(simple_server.run())
 # Push an event later.
 loop.create_task(push(simple_server, 5))
 
-loop.run_forever()
+try:
+    loop.run_forever()
+except KeyboardInterrupt:
+    loop.run_until_complete(simple_server.stop())
