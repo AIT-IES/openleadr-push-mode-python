@@ -11,6 +11,8 @@ enable_default_logging(level=logging.INFO)
 
 LOGGER = logging.getLogger('openleadr')
 
+TEST_VTN_ID = 'VTN-TEST'
+
 TEST_VEN_NAME = 'VEN-TEST'
 
 TEST_VEN_URL = 'http://localhost:8081/OpenADR2/Simple/2.0b'
@@ -70,7 +72,7 @@ async def preregister_ven(s):
         report_id='HOUSE_002_REPORT', resource_id='HOUSE_002')
 
 # Create the server object
-simple_server = OpenADRServerPushMode(vtn_id='VTN-AIT', auto_register_report=False)
+simple_server = OpenADRServerPushMode(vtn_id=TEST_VTN_ID, auto_register_report=False)
 
 # Add the handler for client (VEN) pre-registration
 simple_server.add_handler('on_create_party_registration', on_party_preregistration)

@@ -11,6 +11,12 @@ random.seed(0)
 # enable_default_logging(level=logging.DEBUG)
 enable_default_logging(level=logging.INFO)
 
+TEST_VTN_ID = 'VTN-TEST'
+
+TEST_VTN_URL = 'http://localhost:8080/OpenADR2/Simple/2.0b'
+
+TEST_VEN_NAME = 'VEN-TEST'
+
 VEN_MEASUREMENT_TYPE = 'REAL_POWER'
 VEN_MEASUREMENT_SCALE = SI_SCALE_CODE['k']
 VEN_MEASUREMENT_RATE = timedelta(seconds=2)
@@ -39,12 +45,13 @@ async def start_ven(c):
 
 # Create the client object
 simple_client = OpenADRClientPushMode(
-    ven_name='VEN-TEST',
-    vtn_url='http://localhost:8080/OpenADR2/Simple/2.0b',
+    ven_name=TEST_VEN_NAME,
+    vtn_url=TEST_VTN_URL,
     )
 
-simple_client.pre_register_ven(ven_id='VEN-TEST', 
-    registration_id='REGISTRATION-ID-TEST'
+# Pre-register client
+simple_client.pre_register_ven(ven_id=TEST_VEN_NAME, 
+    vtn_id=TEST_VTN_ID
     )
 
 # Add the report capability to the client
