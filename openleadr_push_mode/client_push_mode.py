@@ -37,7 +37,7 @@ class OpenADRClientPushMode(OpenADRClient):
 
     # Default delay (in seconds) for sending a response of type 'oadrCreatedEvent'
     # after acknowledging a request of type 'oadrDistributeEvent'.
-    CREATED_EVENT_RESPONSE_DELAY = 3
+    CREATED_EVENT_RESPONSE_DELAY = 1
 
     def __init__(self, http_port=8081, http_host='localhost', ca_file=None,
                  http_cert=None, http_key=None, http_key_passphrase=None,
