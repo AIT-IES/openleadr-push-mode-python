@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open('README.md', 'r') as fh:
     long_description = fh.read()
@@ -24,6 +24,7 @@ setup(name='openleadr_push_mode',
       long_description_content_type='text/markdown',
       project_urls={'GitHub': 'https://github.com/AIT-IES/openleadr-push-mode-python'},
       python_requires='>=3.7.0',
+      packages=find_packages(),
       include_package_data=True,
       install_requires=['openleadr==0.5.28'],
       )
