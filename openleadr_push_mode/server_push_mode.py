@@ -216,8 +216,11 @@ class OpenADRServerPushMode(OpenADRServer):
 
         If you don't provide a target using any of the three arguments, the target will be set to the given ven_id.
         '''
-
-        event_id = self.add_event(ven_id=ven_id, **args)
+        try:
+            event_id = self.add_event(ven_id=ven_id, **args)
+        except Exception as e: 
+            logger.error(e)
+            return
         event, callback = self.event_callbacks[event_id]
 
         if (measurement_name is not None):
@@ -259,7 +262,7 @@ class OpenADRServerPushMode(OpenADRServer):
         await super().stop()
         await self.client_session_post.close()
         await asyncio.sleep(0)
-        logger.info(f'{self.vtn_id} stopped.')
+        logger.info(f'\r{self.vtn_id} stopped.')
 
     @property
     def report_requests(self):
