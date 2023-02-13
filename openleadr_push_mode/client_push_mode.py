@@ -144,7 +144,7 @@ class OpenADRClientPushMode(OpenADRClient):
         '''
         await super().stop()
         await self.app_runner.cleanup()
-        logger.info(f'{self.ven_name} stopped.')
+        logger.info(f'\r{self.ven_name} stopped.')
 
     ###########################################################################
     #                                                                         #

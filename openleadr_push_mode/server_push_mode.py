@@ -193,7 +193,7 @@ class OpenADRServerPushMode(OpenADRServer):
         else:
             raise ValueError(f'Unknown VEN ID: {ven_id}')
 
-    async def push_event(self, ven_id, priority=None, measurement_name=None, scale=None, **args):
+    async def push_event(self, ven_id, priority=None, measurement_name=None, scale=None, current_value=None, **args):
         '''
         Convenience method to push an event with a single signal.
         Parameters are the same as for method add_event of OpenLEADR's class OpenADRServer.
@@ -202,6 +202,7 @@ class OpenADRServerPushMode(OpenADRServer):
         :param int priority: The priority of this event relative to other events.
         :param str measurement_name: The OpenADR name of the measurement type; one of openleadr.enums.MEASUREMENTS.
         :param str scale: The OpenADR scale of the measurement type; one of openleadr.enums.SI_SCALE_CODE.
+        :param float current_value: Current signal value.
         :param str signal_name: The OpenADR name of the signal; one of openleadr.objects.SIGNAL_NAME.
         :param str signal_type: The OpenADR type of the signal; one of openleadr.objects.SIGNAL_TYPE.
         :param str intervals: A list of intervals with a dtstart, duration and payload member.
@@ -234,6 +235,10 @@ class OpenADRServerPushMode(OpenADRServer):
                 raise ValueError(f"""The scale must be one of '{"', '".join(SI_SCALE_CODE.members)}'""")
             for signal in event.event_signals:
                 signal.measurement.scale = SI_SCALE_CODE[scale]
+
+        if (current_value is not None):
+            for signal in event.event_signals:
+                signal.current_value = current_value
 
         if (priority is not None):
             if (type(priority) is not int or priority < 0):
