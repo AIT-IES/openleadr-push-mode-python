@@ -193,7 +193,8 @@ class OpenADRServerPushMode(OpenADRServer):
         else:
             raise ValueError(f'Unknown VEN ID: {ven_id}')
 
-    async def push_event(self, ven_id, priority=None, measurement_name=None, scale=None, current_value=None, **args):
+    async def push_event(self, ven_id, priority=None, measurement_name=None,
+                         scale=None, current_value=None, **args):
         '''
         Convenience method to push an event with a single signal.
         Parameters are the same as for method add_event of OpenLEADR's class OpenADRServer.
@@ -383,8 +384,10 @@ class OpenADRServerPushMode(OpenADRServer):
         Push events to VEN in a message of type oadrDistributeEvent.
         '''
         url = f'{address}/EiEvent'
+        request_id = utils.generate_id()
         message = self._create_message('oadrDistributeEvent',
-                                       ven_id=ven_id, vtn_id=self.vtn_id, events=events)
+                                       ven_id=ven_id, request_id=request_id,
+                                       vtn_id=self.vtn_id, events=events)
         try:
             async with self.client_session_post.post(url, data=message) as req:
                 content = await req.read()
