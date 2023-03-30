@@ -194,7 +194,7 @@ class OpenADRServerPushMode(OpenADRServer):
             raise ValueError(f'Unknown VEN ID: {ven_id}')
 
     async def push_event(self, ven_id, priority=None, measurement_name=None,
-                         scale=None, current_value=None, **args):
+                         scale=None, current_value=None, request_id=None, **args):
         '''
         Convenience method to push an event with a single signal.
         Parameters are the same as for method add_event of OpenLEADR's class OpenADRServer.
@@ -249,7 +249,8 @@ class OpenADRServerPushMode(OpenADRServer):
         # Now push the event to the VEN.
         if ven_id in self.services['registration_service'].ven_addresses:
             address = self.services['registration_service'].ven_addresses[ven_id]
-            status = await self._distribute_events(ven_id=ven_id, events=utils.order_events(event), address=address)
+            status = await self._distribute_events(ven_id=ven_id, events=utils.order_events(event),
+                                                   address=address, request_id=request_id)
             if status != HTTPStatus.OK:
                 logger.warning(f'Cannot push event (ID={event_id}), VEN client reponse status: {status}')
                 self._remove_event(ven_id, event_id)
@@ -379,15 +380,14 @@ class OpenADRServerPushMode(OpenADRServer):
         utils.pop_by(self.events[ven_id], 'event_descriptor.event_id', event_id)
         self.event_callbacks.pop(event_id)
 
-    async def _distribute_events(self, ven_id, events, address):
+    async def _distribute_events(self, ven_id, events, address, request_id=None):
         '''
         Push events to VEN in a message of type oadrDistributeEvent.
         '''
         url = f'{address}/EiEvent'
-        request_id = utils.generate_id()
         message = self._create_message('oadrDistributeEvent',
-                                       ven_id=ven_id, request_id=request_id,
-                                       vtn_id=self.vtn_id, events=events)
+                                       ven_id=ven_id, vtn_id=self.vtn_id, events=events,
+                                       request_id=request_id or utils.generate_id())
         try:
             async with self.client_session_post.post(url, data=message) as req:
                 content = await req.read()

@@ -18,7 +18,7 @@ with open('README.md', 'r') as fh:
     long_description = fh.read()
 
 setup(name='openleadr_push_mode',
-      version='0.0.2',
+      version='0.0.3',
       description='Python3 library for building OpenADR Clients (VENs) and Servers (VTNs) in PUSH mode',
       long_description=long_description,
       long_description_content_type='text/markdown',
