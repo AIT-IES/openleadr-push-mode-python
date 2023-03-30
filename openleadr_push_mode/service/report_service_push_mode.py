@@ -13,7 +13,11 @@
 # limitations under the License.
 
 from openleadr.service import service, handler, ReportService
+from openleadr import utils
 
+import logging
+
+logger = logging.getLogger('openleadr')
 
 @service('EiReport')
 class ReportServicePushMode(ReportService):
@@ -39,3 +43,22 @@ class ReportServicePushMode(ReportService):
         self.created_reports[ven_id].clear()
         for pending_report in payload.get('pending_reports', []):
             self.created_reports[ven_id].append(pending_report['report_request_id'])
+
+    @handler('oadrUpdateReport')
+    async def update_report(self, payload):
+
+        # Check if a callback was registered for this report.
+        for report in payload['reports']:
+            report_request_id = report['report_request_id']
+            for r_id, values in utils.group_by(report['intervals'], 'report_payload.r_id').items():
+                if (report_request_id, r_id) not in self.report_callbacks:
+                    for ri in values:
+                        await self.on_unknown_report(report_request_id, r_id, ri['dtstart'], 
+                                                     ri['report_payload']['value'])
+
+        return await super().update_report(payload)
+    
+    async def on_unknown_report(self, report_request_id, r_id, dtstart, report_payload):
+        logger.warning('Received an un-registered report ' + 
+                       f'with request ID={report_request_id} and report ID={r_id}: ' +
+                       f'time="{dtstart}" - value="{report_payload}"')

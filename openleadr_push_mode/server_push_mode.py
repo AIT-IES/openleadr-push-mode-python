@@ -83,6 +83,9 @@ class OpenADRServerPushMode(OpenADRServer):
         self.services['registration_service'] = RegistrationServicePushMode(vtn_id)
         self.services['report_service'] = ReportServicePushMode(vtn_id, auto_register_report)
 
+        # Update map of callbacks.
+        self._MAP['on_unknown_report'] = 'report_service'
+
         # Set up the HTTP handlers for the services
         self.app.add_routes([aiohttp.web.post(f'{self.http_path_prefix}/{s.__service_name__}', s.handler)
                              for s in self.services.values()])
